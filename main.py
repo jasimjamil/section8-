@@ -4,12 +4,15 @@ from peft import PeftModel
 import torch
 import os
 
-os.environ["HF_TOKEN"] = st.secrets["HF_TOKEN"]
+# ── Auth
+HF_TOKEN = st.secrets.get("HF_TOKEN", os.getenv("HF_TOKEN", ""))
+os.environ["HF_TOKEN"] = HF_TOKEN
 
 st.set_page_config(page_title="Income Tax Chatbot", page_icon="🏛️")
 st.title("🏛️ Income Tax Chatbot")
 st.caption("TinyLlama fine-tuned on Income Tax Act · Section 8.1")
 
+# ── Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
     max_tokens  = st.slider("Max new tokens",  50, 400, 150)
@@ -19,23 +22,33 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-@st.cache_resource(show_spinner="Loading model…")
+# ── Load model
+@st.cache_resource(show_spinner="Loading model… please wait")
 def load_model():
-    repo_id  = "muhammadjasim12/incometaxcassendra"
-    token    = os.environ["HF_TOKEN"]
-    tokenizer = AutoTokenizer.from_pretrained(repo_id, use_auth_token=token)
+    repo_id = "muhammadjasim12/incometaxcassendra"
+    token   = os.environ["HF_TOKEN"]
+
+    # Load tokenizer from base model (avoids tokenizer file corruption)
+    tokenizer = AutoTokenizer.from_pretrained(
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    )
+
+    # Load base model in CPU mode (Streamlit Cloud has no GPU)
     base = AutoModelForCausalLM.from_pretrained(
         "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        torch_dtype=torch.float32,   # ✅ CPU safe
-        device_map="cpu",            # ✅ no GPU needed
+        torch_dtype=torch.float32,
+        device_map="cpu",
     )
-    model = PeftModel.from_pretrained(base, repo_id, use_auth_token=token)
+
+    # Load your fine-tuned LoRA adapter
+    model = PeftModel.from_pretrained(base, repo_id, token=token)
     model.eval()
     return tokenizer, model
 
 tokenizer, model = load_model()
-st.success("✅ Model loaded!")
+st.success("✅ Model loaded and ready!")
 
+# ── Chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -43,6 +56,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
+# ── Input and generation
 if prompt := st.chat_input("Ask about Income Tax Act Section 8.1…"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -68,5 +82,6 @@ if prompt := st.chat_input("Ask about Income Tax Act Section 8.1…"):
             answer = tokenizer.decode(output[0], skip_special_tokens=True)
             if "<|assistant|>" in answer:
                 answer = answer.split("<|assistant|>")[-1].strip()
+
         st.write(answer)
         st.session_state.messages.append({"role": "assistant", "content": answer})
