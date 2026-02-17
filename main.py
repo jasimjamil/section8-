@@ -2,14 +2,17 @@ import streamlit as st
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 import torch
+import os
 
 repo_id = "muhammadjasim12/incometaxcassendra"
+
+# Get token from secrets if available, otherwise use empty string
+token = st.secrets.get("HF_TOKEN", "") if hasattr(st, "secrets") else ""
 
 st.set_page_config(page_title="Income Tax Chatbot", page_icon="🏛️")
 st.title("🏛️ Income Tax AI Assistant")
 st.caption("Ask questions about Section 8.1 of the Income Tax Assessment Act 1997")
 
-# ── Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
     max_tokens  = st.slider("Max new tokens",  50, 400, 200)
@@ -19,24 +22,26 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-# ── Load model
 @st.cache_resource(show_spinner="Loading model... please wait")
 def load_model():
     tokenizer = AutoTokenizer.from_pretrained("TinyLlama/TinyLlama-1.1B-Chat-v1.0")
     base = AutoModelForCausalLM.from_pretrained(
         "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         device_map="cpu",
         low_cpu_mem_usage=True
     )
-    model = PeftModel.from_pretrained(base, repo_id)
+    # Use token if available
+    if token:
+        model = PeftModel.from_pretrained(base, repo_id, token=token)
+    else:
+        model = PeftModel.from_pretrained(base, repo_id)
     model.eval()
     return tokenizer, model
 
 tokenizer, model = load_model()
 st.success("✅ Model loaded and ready!")
 
-# ── Chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -44,7 +49,6 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# ── Input and generation
 if prompt := st.chat_input("Ask about Income Tax Act Section 8.1…"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
